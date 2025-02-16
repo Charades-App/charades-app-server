@@ -5,6 +5,10 @@ export type CreateRoom = {
   username: string;
 }
 
+export type JoinRoom = {
+  username: string;
+}
+
 export class RoomController {
   constructor(private roomService: RoomService) { }
 
@@ -17,5 +21,20 @@ export class RoomController {
         'Content-Type': 'application/json'
       }
     });
+  }
+
+  async joinRoom(roomId: string, req: Request): Promise<Response> {
+    const { username } = await req.json() as JoinRoom;
+    const error = await this.roomService.joinRoom(new Username(username), roomId);
+    if (error !== null) {
+      return new Response(JSON.stringify({ error }), {
+        status: 400,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+    } else {
+      return new Response();
+    }
   }
 }
