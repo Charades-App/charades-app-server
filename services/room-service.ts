@@ -10,4 +10,7 @@ export interface RoomService {
   /// Attempt to join a new user to the specified room.
   /// Returns an error if the room doesn't exist, and null if successful.
   joinRoom(username: Username, roomId: string): Promise<string | null>;
+
+  /// Return a list of members for the specified room id.
+  getMembers(roomId: string): Promise<string[]>;
 }

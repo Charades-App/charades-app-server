@@ -1,6 +1,7 @@
 import { type RoomService } from "../services/room-service.ts"
 import { Username } from "../types/username.ts"
 import cookie from "cookie"
+import { ControllerBase } from "./controller-base.ts"
 
 export type CreateRoom = {
   username: string;
@@ -10,8 +11,10 @@ export type JoinRoom = {
   username: string;
 }
 
-export class RoomController {
-  constructor(private roomService: RoomService) { }
+export class RoomController extends ControllerBase {
+  constructor(private roomService: RoomService) {
+    super();
+  }
 
   async createRoom(req: Request): Promise<Response> {
     const { username } = await req.json() as CreateRoom
@@ -38,6 +41,11 @@ export class RoomController {
         headers: this.mkResponseHeaders(username, roomId)
       });
     }
+  }
+
+  async getMembers(req: Request, roomId: string): Promise<Response> {
+    const members = await this.roomService.getMembers(roomId);
+    return this.jsonResponse(members);
   }
 
   private mkResponseHeaders(username: string, roomId: string): Headers {

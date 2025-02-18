@@ -25,6 +25,11 @@ const server = Bun.serve({
       if (roomId !== null) {
         return await roomController.joinRoom(roomId, req);
       }
+    } else if (req.method === "GET" && url.pathname === "/api/rooms") {
+      const roomId = url.searchParams.get('roomId')
+      if (roomId !== null) {
+        return await roomController.getMembers(req, roomId);
+      }
     }
     return new Response(null, { status: 404 });
   },
