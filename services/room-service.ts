@@ -1,5 +1,10 @@
 import { Username } from "../types/username.ts";
 
+export type GetMembersResult
+  = string[]
+  | "NOT_ROOM_OWNER"
+
+
 /// Allow operations on rooms.
 export interface RoomService {
   /// Creates a new room and associates it with the
@@ -12,5 +17,5 @@ export interface RoomService {
   joinRoom(username: Username, roomId: string): Promise<string | null>;
 
   /// Return a list of members for the specified room id.
-  getMembers(roomId: string): Promise<string[]>;
+  getMembers(username: string, roomId: string): Promise<GetMembersResult>;
 }

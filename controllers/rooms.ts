@@ -1,7 +1,7 @@
 import { type RoomService } from "../services/room-service.ts"
 import { Username } from "../types/username.ts"
-import cookie from "cookie"
 import { ControllerBase } from "./controller-base.ts"
+import { SessionData } from "./session-data.ts"
 
 export type CreateRoom = {
   username: string;
@@ -19,40 +19,33 @@ export class RoomController extends ControllerBase {
   async createRoom(req: Request): Promise<Response> {
     const { username } = await req.json() as CreateRoom
     const roomId = await this.roomService.createRoom(new Username(username));
-    const headers = this.mkResponseHeaders(username, roomId);
-    return new Response(JSON.stringify({ roomId }), {
-      status: 201,
-      headers,
-    });
+    const headers = new SessionData(username, roomId).asHeaders();
+    return this.jsonResponse({ roomId }, 201, headers);
   }
 
   async joinRoom(roomId: string, req: Request): Promise<Response> {
     const { username } = await req.json() as JoinRoom;
     const error = await this.roomService.joinRoom(new Username(username), roomId);
     if (error !== null) {
-      return new Response(JSON.stringify({ error }), {
-        status: 400,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      })
+      return this.jsonResponse({ error }, 400);
     } else {
-      return new Response(null, {
-        headers: this.mkResponseHeaders(username, roomId)
-      });
+      const headers = new SessionData(username, roomId).asHeaders();
+      return this.jsonResponse(null, 200, headers);
     }
   }
 
   async getMembers(req: Request, roomId: string): Promise<Response> {
-    const members = await this.roomService.getMembers(roomId);
-    return this.jsonResponse(members);
-  }
-
-  private mkResponseHeaders(username: string, roomId: string): Headers {
-    const headers = new Headers();
-    const sessionInfo = btoa(JSON.stringify({ username, roomId }))
-    headers.set('Content-Type', 'application/json');
-    headers.set('Set-Cookie', cookie.serialize('charades-session', sessionInfo))
-    return headers;
+    const sessionData = SessionData.fromRequest(req);
+    if (sessionData !== null) {
+      const result = await this.roomService.getMembers(sessionData.username, roomId);
+      switch (result) {
+        case "NOT_ROOM_OWNER":
+          return new Response(null, { status: 403 });
+        default:
+          return this.jsonResponse(result);
+      }
+    } else {
+      return new Response(null, { status: 401 });
+    }
   }
 }

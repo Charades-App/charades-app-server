@@ -14,7 +14,7 @@ const idGenerator = new UuidGenerationService();
 const roomService = new RedisRoomService(redisClient, idGenerator);
 const roomController = new RoomController(roomService);
 
-const server = Bun.serve({
+export const server = Bun.serve({
   idleTimeout: 60,
   async fetch(req: Request) {
     const url = new URL(req.url);
