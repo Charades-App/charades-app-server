@@ -55,9 +55,39 @@ test("joining a room sets the session cookie", async () => {
   expect(sessionData!.roomId).toBe(roomId);
 })
 
-test.todo("fetching members for a non-existent room returns an empty list", async () => { })
+test("fetching members for a non-existing room returns unauthorized (user is not in any room)", async () => {
+  const roomId = faker.string.uuid();
 
-test.todo("fetching members for an existing room returns the list of members", async () => { })
+  const url = new URL('/api/rooms', server.url);
+  url.searchParams.append('roomId', roomId);
+
+  const res = await fetch(url)
+
+  expect(res.status).toBe(401);
+})
+
+test("fetching members for an existing room returns the list of members when requesting user is the owner", async () => {
+  const [owner, roomId] = await createRoom();
+  const members = await Promise.all([joinRoom(roomId), joinRoom(roomId), joinRoom(roomId)])
+
+  const cookie = new SessionData(owner, roomId).toCookie();
+
+  const url = new URL('/api/rooms', server.url);
+  url.searchParams.append('roomId', roomId);
+
+  const res = await fetch(url, {
+    headers: {
+      'Cookie': cookie,
+    }
+  })
+
+  const { members: rMembers } = await res.json();
+
+  expect(res.status).toBe(200);
+  expect(rMembers.sort()).toEqual([...members, owner].sort());
+})
+
+/** Helpers **/
 
 const createRoom = async (): Promise<[string, string]> => {
   const username = faker.internet.username();
@@ -71,6 +101,20 @@ const createRoom = async (): Promise<[string, string]> => {
   const { roomId } = await res.json();
 
   return [username, roomId];
+}
+
+const joinRoom = async (roomId: string): Promise<string> => {
+  const joiner = faker.internet.username();
+
+  const url = new URL('/api/rooms/join', server.url);
+  url.searchParams.append('roomId', roomId);
+
+  await fetch(url, {
+    method: 'POST',
+    body: JSON.stringify({ username: joiner })
+  })
+
+  return joiner;
 }
 
 const extractSessionData = (res: Response): SessionData | null => {

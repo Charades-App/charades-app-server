@@ -42,7 +42,7 @@ export class RoomController extends ControllerBase {
         case "NOT_ROOM_OWNER":
           return new Response(null, { status: 403 });
         default:
-          return this.jsonResponse(result);
+          return this.jsonResponse({ members: result });
       }
     } else {
       return new Response(null, { status: 401 });

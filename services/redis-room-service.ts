@@ -1,4 +1,4 @@
-import { type RoomService } from './room-service.ts'
+import { type RoomService, type GetMembersResult } from './room-service.ts'
 import { type IdGenerationService } from './id-generation-service.ts'
 import { type RedisClient } from '../types/redis.ts';
 import { Username } from "../types/username.ts";
@@ -8,6 +8,17 @@ export class RedisRoomService implements RoomService {
     private redis: RedisClient,
     private idGen: IdGenerationService,
   ) { }
+
+
+  async getMembers(username: string, roomId: string): Promise<GetMembersResult> {
+    const owner = await this.redis.get(`rooms:${roomId}:owner`)
+    if (owner !== username) {
+      return "NOT_ROOM_OWNER";
+    }
+
+    const members = await this.redis.sMembers(`rooms:${roomId}:members`);
+    return members;
+  }
 
   async joinRoom(username: Username, roomId: string): Promise<string | null> {
     const key = `rooms:${roomId}:owner`;
