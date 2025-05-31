@@ -4,15 +4,16 @@ import           Control.Concurrent.STM
 import           Control.Monad.IO.Class    (MonadIO)
 import           Data.Aeson
 import           Data.List                 (find)
-import           Data.Maybe                (isJust)
+import           Data.Maybe                (isJust, maybe)
 import           Data.Text                 (Text)
 import           Data.UUID                 (UUID)
 import qualified Data.UUID.V4              as UUID
 import           GHC.Generics              (Generic)
-import           Network.HTTP.Types.Status (ok200)
+import           Network.HTTP.Types.Status (notFound404, ok200)
 import           Web.Scotty                hiding (Handler)
 
 newtype UserName = MkUsername Text
+  deriving newtype (Eq, FromJSON, ToJSON)
 
 newtype UserId = MkUserId UUID
   deriving newtype (Eq, FromJSON, ToJSON)
@@ -28,6 +29,8 @@ data Player = MkPlayer
   { playerUsername :: !UserName
   , playerId       :: !UserId
   }
+  deriving stock Generic
+  deriving anyclass (FromJSON, ToJSON)
 
 data Room = MkRoom
   { roomId            :: !RoomId
@@ -130,6 +133,19 @@ data SetPlayerForRoundR = MkSetPlayerForRoundR
 -- See who is the current player
 -- If not current player, see current word
 -- Let's fuse this endpoints and just return the room state.
+getRoomState :: Handler RoomId (Maybe RoomStateResponse)
+getRoomState roomId' srv =
+  let room = find ((==roomId') . roomId . snd) (serverRooms srv) in
+  case fmap snd room of
+    Just room' -> return (srv, Just $ MkRoomStateResponse (roomCurrentPlayer room') (roomCurrentWord room'))
+    _      -> return (srv, Nothing)
+
+data RoomStateResponse = MkRoomStateResponse
+  { roomStateCurrentPlayer :: !(Maybe Player)
+  , roomStateCurrentWord   :: !(Maybe String)
+  }
+  deriving stock Generic
+  deriving anyclass ToJSON
 
 main :: IO ()
 main = do
@@ -146,8 +162,13 @@ main = do
     post "/api/v1/rooms/:roomId/players/current" $ do
       roomId' <- pathParam "roomId"
       (MkSetPlayerForRoundR playerId ownerId) <- jsonData
-      response <- liftIO $ withServer srv (setPlayerForRound (MkSetPlayerForRound roomId' playerId ownerId))
-      json response
+      liftIO $ withServer srv (setPlayerForRound (MkSetPlayerForRound roomId' playerId ownerId))
+      status ok200
+
+    get "/api/v1/rooms/:roomId" $ do
+      roomId' <- pathParam "roomId"
+      response <- liftIO $ withServer srv (getRoomState roomId')
+      maybe (status notFound404) json response
 
 withServer :: MonadIO m => (TVar Server) -> (Server -> m (Server, a)) -> m a
 withServer srvT action = do
