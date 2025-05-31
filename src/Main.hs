@@ -117,16 +117,19 @@ data SetPlayerForRoundR = MkSetPlayerForRoundR
 -- Set word for current round
 
 -- Start current round
+-- This endpoint does nothing: the players will automatically see updates to the room status.
+-- NOTE: This means an owner MUST set the current player before settting the current word.
 
 -- Stop current round
+-- Same as starting a round, this endpoint does nothing.
 
 -- * Player Endpoints
 
 -- Join room
 
 -- See who is the current player
-
 -- If not current player, see current word
+-- Let's fuse this endpoints and just return the room state.
 
 main :: IO ()
 main = do
