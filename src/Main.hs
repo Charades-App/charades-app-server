@@ -1,23 +1,28 @@
 module Main where
 
 import           Control.Concurrent.STM
-import           Control.Concurrent.STM.TVar
-import           Control.Monad.IO.Class      (MonadIO, liftIO)
+import           Control.Monad.IO.Class    (MonadIO)
 import           Data.Aeson
-import           Data.Text                   (Text)
-import qualified Data.Text                   as T
-import           Data.UUID                   (UUID)
-import qualified Data.UUID.V4                as UUID
-import           GHC.Generics                (Generic)
-import           Network.HTTP.Types.Status   (ok200)
-import           Web.Scotty
+import           Data.List                 (find)
+import           Data.Maybe                (isJust)
+import           Data.Text                 (Text)
+import           Data.UUID                 (UUID)
+import qualified Data.UUID.V4              as UUID
+import           GHC.Generics              (Generic)
+import           Network.HTTP.Types.Status (ok200)
+import           Web.Scotty                hiding (Handler)
 
 newtype UserName = MkUsername Text
+
 newtype UserId = MkUserId UUID
-  deriving newtype ToJSON
+  deriving newtype (Eq, FromJSON, ToJSON)
+
 newtype RoomId = MkRoomId UUID
-  deriving newtype ToJSON
+  deriving newtype (Eq, FromJSON, ToJSON, Read)
+instance Parsable RoomId where parseParam = readEither
+
 newtype OwnerId = MkOwnerId UUID
+  deriving newtype (Eq, FromJSON, ToJSON)
 
 data Player = MkPlayer
   { playerUsername :: !UserName
@@ -40,6 +45,8 @@ data Server = MkServer
 emptyServer :: IO (TVar Server)
 emptyServer = newTVarIO $ MkServer [] []
 
+type Handler a r = a -> Server -> IO (Server, r)
+
 -- * API Endpoints
 
 -- * Admin Endpoints
@@ -47,7 +54,7 @@ emptyServer = newTVarIO $ MkServer [] []
 -- | Create a room
 -- This endpoint needs the owner's username and returns a generated UserId and RoomId.
 -- It also adds the created room to the server and the owner to the room's and server's player list.
-createRoom :: NewRoom -> Server -> IO (Server, NewRoomResponse)
+createRoom :: Handler NewRoom NewRoomResponse
 createRoom (MkNewRoom ownerUsername) server = do
   ownerId@(MkUserId rawId) <- MkUserId <$> UUID.nextRandom
   roomId' <- MkRoomId <$> UUID.nextRandom
@@ -72,8 +79,40 @@ data NewRoomResponse = MkNewRoomResponse
   deriving anyclass ToJSON
 
 -- Share room link
+-- Just get the room ID from the response of the create room endpoint.
 
--- Set player for current round
+-- | Set player for current round
+-- This endpoint needs the room ID and the player ID, as well as the owner ID for access control.
+setPlayerForRound :: Handler SetPlayerForRound ()
+setPlayerForRound (MkSetPlayerForRound roomId' userId' ownerId) srv = do
+  let
+    -- Check that room exists
+    rooms = filter ((==roomId') . roomId . snd) (serverRooms srv)
+  case map snd rooms of
+    [room] | isJust $ lookup ownerId rooms {- Check that owner is valid -} ->
+      let
+          -- Check that user is playing in the room
+          player = find ((==userId') . playerId) (roomPlayers room)
+          -- Update the room's current player
+          newRoom = room { roomCurrentPlayer = player }
+          -- NOTE: Here we are being _extra_ lazy and just appending to the list of rooms.
+          -- This can lead to running out of memory. We're also relying on lookup to scan the list from head to tail.
+          srv' = srv { serverRooms = (ownerId, newRoom) : serverRooms srv } in
+      return (srv', ())
+    _ -> return (srv, ())
+
+data SetPlayerForRound = MkSetPlayerForRound
+  { setPlayerRoomId  :: !RoomId
+  , setPlayerUserId  :: !UserId
+  , setPlayerOwnerId :: !OwnerId
+  }
+
+data SetPlayerForRoundR = MkSetPlayerForRoundR
+  { setPlayerUserIdR  :: !UserId
+  , setPlayerOwnerIdR :: !OwnerId
+  }
+  deriving stock Generic
+  deriving anyclass FromJSON
 
 -- Set word for current round
 
@@ -101,6 +140,11 @@ main = do
       response <- liftIO $ withServer srv (createRoom newRoom)
       json response
 
+    post "/api/v1/rooms/:roomId/players/current" $ do
+      roomId' <- pathParam "roomId"
+      (MkSetPlayerForRoundR playerId ownerId) <- jsonData
+      response <- liftIO $ withServer srv (setPlayerForRound (MkSetPlayerForRound roomId' playerId ownerId))
+      json response
 
 withServer :: MonadIO m => (TVar Server) -> (Server -> m (Server, a)) -> m a
 withServer srvT action = do
