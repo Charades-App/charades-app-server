@@ -4,6 +4,7 @@ import           Control.Concurrent.STM
 import           Control.Monad.IO.Class    (MonadIO)
 import           Data.Aeson
 import           Data.List                 (find)
+import           Data.Maybe                (maybe)
 import           Data.Text                 (Text)
 import           Data.UUID                 (UUID)
 import qualified Data.UUID.V4              as UUID
@@ -151,7 +152,42 @@ data SetWordForRoundRequest = MkSetWordForRoundRequest
 
 -- * Player Endpoints
 
--- Join room
+-- | Join room
+-- This endpoint needs the room ID and the player's username. It returns the new player's ID.
+joinRoom :: Handler JoinRoom (Maybe JoinRoomResponse)
+joinRoom jr srv =
+  case find ((== (joinRoomId jr)) . roomId . snd) (serverRooms srv) of
+    Just (ownerId, room) -> do
+      playerId' <- MkUserId <$> UUID.nextRandom
+      let
+          newPlayer = MkPlayer (MkUsername $ joinRoomUsername jr) playerId'
+          newRoom = room { roomPlayers = newPlayer : roomPlayers room }
+          newSrv = srv
+              { serverPlayers = newPlayer : serverPlayers srv
+              , serverRooms = (ownerId, newRoom) : serverRooms srv
+              }
+       in return (newSrv, Just $ MkJoinRoomResponse playerId')
+    _                    -> return (srv, Nothing)
+
+
+data JoinRoom = MkJoinRoom
+  { joinRoomId       :: !RoomId
+  , joinRoomUsername :: !Text
+  }
+  deriving stock Generic
+  deriving anyclass FromJSON
+
+data JoinRoomRequest = MkJoinRoomRequest
+  { joinRoomRequestUsername :: !Text
+  }
+  deriving stock Generic
+  deriving anyclass FromJSON
+
+data JoinRoomResponse = MkJoinRoomResponse
+  { joinRoomPlayerId :: !UserId
+  }
+  deriving stock Generic
+  deriving anyclass ToJSON
 
 -- See who is the current player
 -- If not current player, see current word
@@ -160,12 +196,19 @@ getRoomState :: Handler RoomId (Maybe RoomStateResponse)
 getRoomState roomId' srv =
   let room = find ((==roomId') . roomId . snd) (serverRooms srv) in
   case fmap snd room of
-    Just room' -> return (srv, Just $ MkRoomStateResponse (roomCurrentPlayer room') (roomCurrentWord room'))
+    Just room' -> return
+          ( srv
+          , Just $ MkRoomStateResponse
+                    (roomCurrentPlayer room')
+                    (roomCurrentWord room')
+                    (roomPlayers room')
+          )
     _      -> return (srv, Nothing)
 
 data RoomStateResponse = MkRoomStateResponse
   { roomStateCurrentPlayer :: !(Maybe Player)
   , roomStateCurrentWord   :: !(Maybe Text)
+  , roomStatePlayers       :: ![Player]
   }
   deriving stock Generic
   deriving anyclass ToJSON
@@ -193,6 +236,12 @@ main = do
       (MkSetWordForRoundRequest wrd ownerId) <- jsonData
       liftIO $ withServer srv (setWordForRound (MkSetWordForRound roomId' wrd ownerId))
       status ok200
+
+    post "/api/v1/rooms/:roomId/players" $ do
+      roomId' <- pathParam "roomId"
+      joinRoomRequest <- jsonData
+      response <- liftIO $ withServer srv (joinRoom (MkJoinRoom roomId' (joinRoomRequestUsername joinRoomRequest)))
+      maybe (status notFound404) json response
 
     get "/api/v1/rooms/:roomId" $ do
       roomId' <- pathParam "roomId"
