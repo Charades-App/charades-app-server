@@ -4,7 +4,6 @@ import           Control.Concurrent.STM
 import           Control.Monad.IO.Class    (MonadIO)
 import           Data.Aeson
 import           Data.List                 (find)
-import           Data.Maybe                (isJust, maybe)
 import           Data.Text                 (Text)
 import           Data.UUID                 (UUID)
 import qualified Data.UUID.V4              as UUID
@@ -37,7 +36,7 @@ data Room = MkRoom
   , roomOwnerId       :: !UserId
   , roomPlayers       :: ![Player]
   , roomCurrentPlayer :: !(Maybe Player)
-  , roomCurrentWord   :: !(Maybe String)
+  , roomCurrentWord   :: !(Maybe Text)
   }
 
 data Server = MkServer
@@ -90,9 +89,9 @@ setPlayerForRound :: Handler SetPlayerForRound ()
 setPlayerForRound (MkSetPlayerForRound roomId' userId' ownerId) srv = do
   let
     -- Check that room exists
-    rooms = filter ((==roomId') . roomId . snd) (serverRooms srv)
-  case map snd rooms of
-    [room] | isJust $ lookup ownerId rooms {- Check that owner is valid -} ->
+    mRoom = find ((==roomId') . roomId . snd) (serverRooms srv)
+  case fmap snd mRoom of
+    Just room | Just ownerId == fmap fst mRoom {- Check that owner is valid -} ->
       let
           -- Check that user is playing in the room
           player = find ((==userId') . playerId) (roomPlayers room)
@@ -117,7 +116,31 @@ data SetPlayerForRoundR = MkSetPlayerForRoundR
   deriving stock Generic
   deriving anyclass FromJSON
 
--- Set word for current round
+-- | Set word for current round
+-- This endpoint needs the room ID and the current word, as well as the owner ID for access control.
+setWordForRound :: Handler SetWordForRound ()
+setWordForRound (MkSetWordForRound roomId' wrd ownerId) srv =
+  let mRoom = find ((==roomId') . roomId . snd) (serverRooms srv) in
+  case fmap snd mRoom of
+    Just room | Just ownerId == fmap fst mRoom {- Check that owner is valid -} ->
+      let newRoom = room { roomCurrentWord = Just wrd }
+          srv' = srv { serverRooms = (ownerId, newRoom) : serverRooms srv }
+       in return (srv', ())
+    _ -> return (srv, ())
+
+data SetWordForRound = MkSetWordForRound
+  { setWordRoomId  :: !RoomId
+  , setWordWord    :: !Text
+  , setWordOwnerId :: !OwnerId
+  }
+
+-- | The API schema for the endpoint that set's the current word for the round.
+data SetWordForRoundRequest = MkSetWordForRoundRequest
+  { setWordWordRequest    :: !Text -- ^ The word to set
+  , setWordOwnerIdRequest :: !OwnerId -- ^ The ID of the room owner
+  }
+  deriving stock Generic
+  deriving anyclass FromJSON
 
 -- Start current round
 -- This endpoint does nothing: the players will automatically see updates to the room status.
@@ -142,7 +165,7 @@ getRoomState roomId' srv =
 
 data RoomStateResponse = MkRoomStateResponse
   { roomStateCurrentPlayer :: !(Maybe Player)
-  , roomStateCurrentWord   :: !(Maybe String)
+  , roomStateCurrentWord   :: !(Maybe Text)
   }
   deriving stock Generic
   deriving anyclass ToJSON
@@ -161,8 +184,14 @@ main = do
 
     post "/api/v1/rooms/:roomId/players/current" $ do
       roomId' <- pathParam "roomId"
-      (MkSetPlayerForRoundR playerId ownerId) <- jsonData
-      liftIO $ withServer srv (setPlayerForRound (MkSetPlayerForRound roomId' playerId ownerId))
+      (MkSetPlayerForRoundR playerId' ownerId) <- jsonData
+      liftIO $ withServer srv (setPlayerForRound (MkSetPlayerForRound roomId' playerId' ownerId))
+      status ok200
+
+    post "/api/v1/rooms/:roomId/words/current" $ do
+      roomId' <- pathParam "roomId"
+      (MkSetWordForRoundRequest wrd ownerId) <- jsonData
+      liftIO $ withServer srv (setWordForRound (MkSetWordForRound roomId' wrd ownerId))
       status ok200
 
     get "/api/v1/rooms/:roomId" $ do
