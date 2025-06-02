@@ -1,15 +1,16 @@
 module Main where
 
 import           Control.Concurrent.STM
-import           Control.Monad.IO.Class    (MonadIO)
+import           Control.Monad.IO.Class      (MonadIO)
 import           Data.Aeson
-import           Data.List                 (find)
-import           Data.Text                 (Text)
-import           Data.UUID                 (UUID)
-import qualified Data.UUID.V4              as UUID
-import           GHC.Generics              (Generic)
-import           Network.HTTP.Types.Status (notFound404, ok200)
-import           Web.Scotty                hiding (Handler)
+import           Data.List                   (find)
+import           Data.Text                   (Text)
+import           Data.UUID                   (UUID)
+import qualified Data.UUID.V4                as UUID
+import           GHC.Generics                (Generic)
+import           Network.HTTP.Types.Status   (notFound404, ok200)
+import           Network.Wai.Middleware.Cors
+import           Web.Scotty                  hiding (Handler)
 
 newtype UserName = MkUsername Text
   deriving newtype (Eq, FromJSON, ToJSON)
@@ -175,6 +176,14 @@ main = do
   srv <- emptyServer
 
   scotty 3000 $ do
+    middleware $ cors $ \_ -> Just $
+      (simpleCorsResourcePolicy
+        { corsOrigins = Nothing
+        , corsMethods = ["GET", "POST", "PUT", "DELETE"]
+        , corsRequestHeaders = ["Content-Type"]
+        }
+      )
+
     get "/api/v1/health" $ status ok200
 
     post "/api/v1/rooms" $ do
